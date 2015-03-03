@@ -1,0 +1,4 @@
+>>ip=r"192\.168\.100\.\d+"
+>>>cmd_output=commands.getoutput('ifconfig')
+>>>obtain_ip=re.search(ip,cmd_output)
+>>>print obtain_ip.group()
