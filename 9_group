@@ -1,0 +1,236 @@
+在数据库中一次将所有数据读入内存，然后在内存中生成一个Tree，这样可以减少数据库的访问，增加性能，并且只有的数据方式改变的时候，全部重新从数据库中生成Tree，否则一直保持在内存中。
+使用标准的DAO模式先生成POJO类(Catalog)和DAO类(CatalogDAO)。
+然后建立相对通用的Tree和TreeNode类。
+ import java.util.*；
+ import org.apache.commons.lang.StringUtils；
+ import org.apache.commons.logging.Log；
+ import org.apache.commons.logging.LogFactory；
+ public abstract class Tree{
+ protected static Log log=LogFactory.getLog(Tree.class)；
+ private Map treeNodeMaps=new Hashtable()；
+ private TreeNode root；
+ protected void reload(List nodes){
+ log.info("tree will start reload all data")；
+ synchronized(this){
+//initialize 018 treeNodeMaps.clear()；
+ root=null；
+ List treeNodes=new Vector(nodes.size())；
+ for(int i=0；i TreeNode node=this.transform(nodes.get(i))；//transform 022 treeNodes.add(node)；
+ node.setTree(this)；
+ treeNodeMaps.put(node.getNodeId(),node)；
+}
+ for(int i=0；i 028 TreeNode node=(TreeNode)treeNodes.get(i)；
+ String parentId=node.getParentId()；
+ if(this.isRootNode(node)){
+ if(root==null){
+ root=node；
+}else{
+ log.error("find more then one root node.ignore.")；
+}
+}else{
+ TreeNode parent=(TreeNode)treeNodeMaps.get(parentId)；
+ if(parent！=null){
+ parent.addChild(node)；
+ node.setParent(parent)；
+}else{
+ log.warn("node[id="+node.getNodeId()+"]：missing parent node.")；
+}
+}
+}
+}
+ if(root==null){
+ log.error("the root node is not be defined")；
+}
+}
+ protected boolean isRootNode(TreeNode node){
+ return StringUtils.isBlank(node.getParentId())；
+}
+ public TreeNode getRootNode(){
+ return root；
+}
+ public TreeNode getTreeNode(String nodeId){
+ return(TreeNode)treeNodeMaps.get(nodeId)；
+}
+ public void addTreeNode(TreeNode node){
+ synchronized(this){
+ treeNodeMaps.put(node.getNodeId(),node)；
+ String parentId=node.getParentId()；
+ if(StringUtils.isNotBlank(parentId)){
+ TreeNode parent=getTreeNode(parentId)；
+ if(parent！=null){
+ parent.addChild(node)；
+ node.setParent(parent)；
+}else{
+ log.error("parent cannot be found："+node.getParentId())；
+}
+}else{
+ if(root==null){
+ root=node；
+}else{
+ log.error("find more then one root node.ignore.")；
+}
+}
+}
+}
+ public void deleteTreeNode(String nodeId){
+ synchronized(this){
+ TreeNode node=getTreeNode(nodeId)；
+ if(node==null)
+ throw new IllegalArgumentException(nodeId+"cannot be found.")；
+ if(node.getParent()==null){
+ root=null；
+ treeNodeMaps.clear()；
+ log.warn("the root node has been removed.")；
+}else{
+ node.getParent().getChildren().remove(node)；
+ treeNodeMaps.remove(nodeId)；
+ List children=node.getAllChildren()；
+ for(int i=0；i 095 TreeNode n=(TreeNode)children.get(i)；
+ treeNodeMaps.remove(n.getNodeId())；
+}
+}
+}
+}
+  protected abstract TreeNode transform(Object info)；
+}
+ TreeNode.java 130 package com.humpic.helper.tree；
+ import java.util.List；
+ import java.util.Vector；
+ import org.apache.commons.collections.Predicate；
+ import org.apache.commons.lang.ObjectUtils；
+ public class TreeNode{
+ private Tree tree；
+ private TreeNode parent；
+ private List children=new Vector()；
+ private List childrenGroup=new Vector()；
+ private String nodeId；
+ private String parentId；
+ private Object bindData；
+ public String getNodeId(){
+ return nodeId；
+}
+ public void setNodeId(String nodeId){
+ this.nodeId=nodeId；
+}
+ public String getParentId(){
+ return parentId；
+}
+ public void setParentId(String parentId){
+ this.parentId=parentId；
+}
+ public Object getBindData(){
+ return bindData；
+}
+ public void setBindData(Object bindData){
+ this.bindData=bindData；
+}
+ public Tree getTree(){
+ return tree；
+}
+ public void setTree(Tree tree){
+ this.tree=tree；
+}
+ public void setParent(TreeNode parent){
+ this.parent=parent；
+}
+ public TreeNode getParent(){
+ return this.parent；
+}
+ public List getChildren(){
+ return this.children；
+}
+ public void addChild(TreeNode node){
+ children.add(node)；
+}
+ 182 public List getAllChildren(){
+ if(this.childrenGroup.isEmpty()){
+ synchronized(this.tree){
+ for(int i=0；i TreeNode node=(TreeNode)this.children.get(i)；
+ this.childrenGroup.add(node)；
+ this.childrenGroup.addAll(node.getAllChildren())；
+}
+}
+}
+ return this.childrenGroup；
+}
+ 196 public List getAllChildren(Predicate predicate){
+ List groups=new Vector()；
+ fillAllChildren(groups,predicate)；
+ return groups；
+}
+ private void fillAllChildren(List groups,Predicate predicate){
+ for(int i=0；i 203 TreeNode node=(TreeNode)this.children.get(i)；
+ if(predicate.evaluate(node)){
+ groups.add(node)；
+ node.fillAllChildren(groups,predicate)；
+}
+}
+}
+  public List getParents(){
+ List results=new Vector()；
+ TreeNode parent=this.getParent()；
+ while(parent！=null){
+ results.add(parent)；
+ parent=parent.getParent()；
+}
+ return results；
+}
+  public boolean isMyParent(String nodeId){
+ TreeNode target=tree.getTreeNode(nodeId)；
+TreeNode parent=this.getParent()；
+ if(parent==null){
+ return target==null；
+}else{
+ return parent.equals(target)；
+}
+}
+public boolean isMyAncestor(String nodeId){
+ TreeNode target=tree.getTreeNode(nodeId)；
+ if(target==null)
+ return true；
+ return target.getAllChildren().contains(this)；
+}
+ public boolean isMyBrother(String nodeId){
+ TreeNode target=tree.getTreeNode(nodeId)；
+ if(target==null)
+ return false；
+ TreeNode p1=this.getParent()；
+ TreeNode p2=target.getParent()；
+ return ObjectUtils.equals(p1,p2)；
+}
+}
+建立业务Tree CatalogTree.java view source print?01package com.humpic.helper.tree；
+ import java.util.List；
+ import org.apache.commons.collections.Predicate；
+ public class CatalogTree extends Tree{
+ private static CatalogTree instance=null；
+ private CatalogTree(){}
+ 08 public static synchronized CatalogTree getInstance(){
+ if(instance==null){
+ instance=new CatalogTree()；
+ instance.reloadCatalogs()；
+}
+ return instance；
+}
+ protected TreeNode transform(Object info){
+ Catalog catalog=(Catalog)info；
+ TreeNode node=new TreeNode()；
+ node.setNodeId(catalog.getCatalogId())；
+ node.setParentId(catalog.getParentId())；
+ node.setBindData(catalog)；
+ return node；
+}
+ public void reloadCatalogs(){
+ List nodes=CatalogDAO.getInstance().findAll()；
+ super.reload(nodes)；
+}
+ public Catalog getCatalogNode(String catalogId){
+ TreeNode node=super.getTreeNode(catalogId)；
+ return node==null?null：(Catalog)node.getBindData()；
+}
+}
+使用以下的语句就可以了
+CatalogTree.getInstance().getTreeNode(.)
+CatalogTree.getInstance().getCatalogNode(.)
+CatalogTree.getInstance().getRootNode()
+通过TreeNode，就可以得到parent,parents和children,allChildren
